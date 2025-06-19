@@ -1,0 +1,62 @@
+name: trading-pattern-optimizer
+
+parameters:
+  STOCKS_DATASET_ID:
+    type: string
+    default: your-paperspace-dataset-id
+  MODEL_OUTPUT_PATH:
+    type: string
+    default: ./outputs/model.pkl
+  PARAMS_OUTPUT_PATH:
+    type: string
+    default: ./outputs/best_params.json
+
+steps:
+  - name: ingest-data
+    container: public.ecr.aws/paperspace/python:3.9
+    machineType: C4_SMALL
+    command: |
+      mkdir -p /workspace/data/processed
+      paperspace datasets download \
+        --datasetId ${{ parameters.STOCKS_DATASET_ID }} \
+        --outputDir /workspace/data/raw
+      python scripts/ingest_data.py \
+        --inputDir /workspace/data/raw \
+        --outputDir /workspace/data/processed
+
+  - name: train-model
+    dependsOn: [ingest-data]
+    container: public.ecr.aws/paperspace/python:3.9
+    machineType: C4_STANDARD
+    command: |
+      mkdir -p /workspace/models
+      python scripts/train_model.py \
+        --dataDir /workspace/data/processed \
+        --modelOut ${{ parameters.MODEL_OUTPUT_PATH }}
+
+  - name: backtest
+    dependsOn: [train-model]
+    container: public.ecr.aws/paperspace/python:3.9
+    machineType: C4_STANDARD
+    command: |
+      python scripts/backtest.py \
+        --modelPath ${{ parameters.MODEL_OUTPUT_PATH }} \
+        --dataDir /workspace/data/processed \
+        --resultsOut ./outputs/backtest_results.json
+
+  - name: optimize-params
+    dependsOn: [backtest]
+    container: public.ecr.aws/paperspace/python:3.9
+    machineType: C4_SMALL
+    command: |
+      python scripts/optimize_params.py \
+        --backtestResults ./outputs/backtest_results.json \
+        --outParams ${{ parameters.PARAMS_OUTPUT_PATH }}
+
+  - name: deploy-params
+    dependsOn: [optimize-params]
+    container: public.ecr.aws/paperspace/python:3.9
+    machineType: C4_SMALL
+    command: |
+      python scripts/update_trading_bot.py \
+        --paramsPath ${{ parameters.PARAMS_OUTPUT_PATH }}
