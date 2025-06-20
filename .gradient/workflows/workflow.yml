@@ -1,4 +1,7 @@
-: main
+on:
+  github:
+    branches:
+      only: main
 
 jobs:
   # 1️⃣ Clone your repo
