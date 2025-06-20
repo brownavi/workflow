@@ -1,0 +1,96 @@
+on:
+  github:
+    branches:
+      only: main
+
+jobs:
+  # 1️⃣ Clone your repo
+  CloneRepo:
+    resources:
+      instance-type: C5
+    outputs:
+      repo:
+        type: volume
+    uses: git-checkout@v1
+    with:
+      url: context.event.github.url
+
+  # 2️⃣ Ingest raw data
+  ingest-data:
+    needs: [CloneRepo]
+    resources:
+      instance-type: C5
+    inputs:
+      repo: CloneRepo.outputs.repo
+    uses: script@v1
+    with:
+      image: public.ecr.aws/paperspace/python:3.9
+      script: |
+        mkdir -p /workspace/data/processed
+        paperspace datasets download \
+          --datasetId your-paperspace-dataset-id \
+          --outputDir /workspace/data/raw
+        python /inputs/repo/scripts/ingest_data.py \
+          --inputDir /workspace/data/raw \
+          --outputDir /workspace/data/processed
+
+  # 3️⃣ Train your model
+  train-model:
+    needs: [ingest-data]
+    resources:
+      instance-type: C5
+    inputs:
+      repo: CloneRepo.outputs.repo
+    uses: script@v1
+    with:
+      image: public.ecr.aws/paperspace/python:3.9
+      script: |
+        mkdir -p /workspace/models
+        python /inputs/repo/scripts/train_model.py \
+          --dataDir /workspace/data/processed \
+          --modelOut ./outputs/model.pkl
+
+  # 4️⃣ Backtest
+  backtest:
+    needs: [train-model]
+    resources:
+      instance-type: C5
+    inputs:
+      repo: CloneRepo.outputs.repo
+    uses: script@v1
+    with:
+      image: public.ecr.aws/paperspace/python:3.9
+      script: |
+        python /inputs/repo/scripts/backtest.py \
+          --modelPath ./outputs/model.pkl \
+          --dataDir /workspace/data/processed \
+          --resultsOut ./outputs/backtest_results.json
+
+  # 5️⃣ Optimize parameters
+  optimize-params:
+    needs: [backtest]
+    resources:
+      instance-type: C5
+    inputs:
+      repo: CloneRepo.outputs.repo
+    uses: script@v1
+    with:
+      image: public.ecr.aws/paperspace/python:3.9
+      script: |
+        python /inputs/repo/scripts/optimize_params.py \
+          --backtestResults ./outputs/backtest_results.json \
+          --outParams ./outputs/best_params.json
+
+  # 6️⃣ Deploy updated params
+  deploy-params:
+    needs: [optimize-params]
+    resources:
+      instance-type: C5
+    inputs:
+      repo: CloneRepo.outputs.repo
+    uses: script@v1
+    with:
+      image: public.ecr.aws/paperspace/python:3.9
+      script: |
+        python /inputs/repo/scripts/update_trading_bot.py \
+          --paramsPath ./outputs/best_params.json
