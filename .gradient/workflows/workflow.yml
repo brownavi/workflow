@@ -1,11 +1,4 @@
-on:
-  github:
-    branches:
-      only: main
 
-jobs:
-  # 1️⃣ Clone your repo
-  CloneRepo:
     resources:
       instance-type: C5
     outputs:
